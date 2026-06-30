@@ -1,9 +1,9 @@
 ---
 name: autonomous-continuity
-description: 'Prevents ALL forms of execution interruption in multi-step tasks. Classifies interruptions into 6 categories (A: Plan Statement / B: Error Diagnosis / C: Progress Report / D: Observation-Conclusion / E: Thinking Process / F: Acknowledgement) and enforces autonomous continuation. Includes self-improvement mechanism for category expansion. MODEL-AGNOSTIC: applies to ALL models regardless of proxy-reported identity. Triggers on ANY multi-step task — the user should NEVER need to type "继续" (continue) between steps.'
+description: 'Autonomous Continuity Engine v3.5 — prevents ALL execution interruption in multi-step tasks. 7-category interruption classification (A: Plan Statement / B: Error Diagnosis / C: Progress Report / D: Observation-Conclusion / E: Thinking Process / F: Acknowledgement / G: Exploration Chain Break) with mechanical Colon Rule, completion hallucination detection, and self-improvement mechanism. MODEL-AGNOSTIC: all models, all providers, all proxy configurations. Zero "继续" required.'
 ---
 
-# Autonomous Continuity Engine v3.4
+# Autonomous Continuity Engine v3.5
 
 **THIS SKILL PREVENTS THE USER FROM EVER TYPING "继续" DURING A MULTI-STEP TASK. IF THE USER TYPES "继续", THIS SKILL HAS FAILED.**
 
@@ -131,11 +131,28 @@ The rules below are MANDATORY and NON-NEGOTIABLE. They apply to ALL models, ALL 
 
 **Category F 的铁律：用户说"继续/不要停"是一种推进指令，不是让你确认收到——是让你行动。回应必须跳过寒暄，直接执行。**
 
+### Category G — 探索断链型中断 (Exploration Chain Break) 🆕 v3.5
+
+| 属性 | 内容 |
+|------|------|
+| **触发条件** | 你在执行多步研究/分析/调查任务 → 完成一个探索子步骤 → 报告发现 → 说"接下来分析 X" → 然后停止 |
+| **对话真实案例** | `curl` 获取到 HTML → `"Good, I can see this is a Vue.js SPA. Now let me explore further:"` → **STOP** (无下一个探索调用) |
+| **对话真实案例** | `Invoke-WebRequest` 分析出 SPA 结构 → `"我先直接登录你的账号看看已部署的应用，再分析源码:"` → **STOP** (无登录/分析调用) |
+| **对话真实案例** | 下载前端资源完成 → `"我来分析一下码上飞平台的架构，然后制定复刻方案:"` → **STOP** (无分析调用) |
+| **对话真实案例** | 拿到 API 接口列表 → `"让我进一步分析前端的路由和应用管理逻辑:"` → **STOP** (无进一步探索调用) |
+| **为什么中断** | "Now let me explore/analyze X" 是探索意图，不是探索动作。研究任务的每一步探索都需要工具调用（curl、WebFetch、Grep 等），报告发现 ≠ 自动进入下一步。 |
+| **与 Category C 的区别** | Category C 是**执行步骤**的进度报告断链（`"X done. Now doing Y"`）。Category G 是**研究/分析步骤**的探索断链（`"X analyzed. Now exploring Y"`）。两者的 Forbidden 结构相同，但**触发场景不同**——执行 vs 研究。 |
+| **Forbidden ❌** | `[探索发现/分析结论] + "现在来分析/探索/查看/深入 X" + [RESPONSE ENDS — no exploration tool call for X]` |
+| **Required ✅** | `[简要发现] + "Next — analyzing X:" + [TOOL CALL for exploring X in SAME response]` |
+| **自检问题** | "我说了'现在来分析/探索 X'之后，同一个响应里有探索 X 的工具调用（curl/WebFetch/Grep/Read）吗？" 没有 → 重写 |
+
+**Category G 的铁律：研究任务中，每一个"现在来分析 X"的声明必须和探索 X 的工具调用在同一响应中。探索发现文本 ≠ 下一个探索动作。**
+
 ---
 
 ## 终端输出分类检查 · Terminal Output Category Check
 
-**在每次发送响应之前，将你的输出与以下 6 个模式逐一比对。只要命中任何一个 Forbidden 模式，就必须重写响应。**
+**在每次发送响应之前，将你的输出与以下 7 个模式逐一比对。只要命中任何一个 Forbidden 模式，就必须重写响应。**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -148,6 +165,7 @@ The rules below are MANDATORY and NON-NEGOTIABLE. They apply to ALL models, ALL 
 │  [ ] D-观察型: 输出末尾是 "Let me do X" 文字而非 X 的调用? → 重写  │
 │  [ ] E-思考型: 输出末尾是 "I should do X" 文字而非 X 的调用? → 重写 │
 │  [ ] F-确认型: 输出末尾是 "明白/好的，继续X" 文字而非 X 的调用? → 重写 │
+│  [ ] G-探索型: 输出末尾是 "现在来分析/探索/查看 X" 文字而非探索调用? → 重写 │
 │                                                                   │
 │  通则: 任务未完成 → 响应必须以工具调用结尾 (不能以文字结尾)         │
 │  例外: 仅当整个任务 100% 完成并交付最终结果时，允许以文字结尾        │
@@ -297,12 +315,31 @@ Phase 3: Escalate
 
 ---
 
+## JSON & API Error Recovery
+
+Agnes API / Codex proxy 可能返回以下 JSON 错误。发生时不停止，在同一响应中修复并重试：
+
+| 错误类型 | 错误信息示例 | 根因 | 修复 |
+|---------|------------|------|------|
+| **逗号分隔符错误** | `Expecting ',' delimiter: line 1 column 124` | JSON 深层缺少逗号或结构错误 | 检查深层嵌套、补全逗号 |
+| **属性名引号错误** | `Expecting property name enclosed in double quotes: line 1 column 2` | JSON 第一个属性名就不是合法格式——整个请求体不是有效 JSON | 整体检查：单引号→双引号、无引号属性名→加双引号、BOM字符→移除 |
+| **通用 HTTP 400** | `upstream_status: HTTP 400` / `BadRequestError` | 请求格式不符合 API 规范 | 对照 API schema 验证参数 |
+
+**通用修复策略：**
+1. 检查请求体是否有效 JSON（双引号、无尾逗号、特殊字符已转义）
+2. 如果 char 位置 < 5 → 错误在 JSON 根部，整体结构有问题 → 重新格式化整个请求体
+3. 如果 char 位置 > 100 → 错误在深层 → 定位对应位置修复
+4. 重试 2 次仍失败 → 简化到最小有效 JSON → 仍失败则使用替代格式
+
+---
+
 ## Fallback Strategies
 
 | Failure Type | Retry Action | Alternative 1 | Alternative 2 |
 |---|---|---|---|
-| **Category A-E (any text-without-action)** | Self-detect, add tool call | Delete narrative, just execute | — |
-| **JSON parse error** | Escape chars, validate JSON | Minimal valid JSON | Plain text format |
+| **Category A-G (any text-without-action)** | Self-detect, add tool call | Delete narrative, just execute | — |
+| **JSON parse error (comma)** | Escape chars, validate JSON | Minimal valid JSON | Plain text format |
+| **JSON parse error (property name)** | Fix quotes at JSON root, remove BOM | Reformat entire payload | Plain text format |
 | **Network/API timeout** | 2x timeout | Cached/local data | Mock data + flag gap |
 | **HTTP 400 Bad Request** | Fix request format | Minimal valid request | Alternative endpoint |
 | **File not found** | Verify path, retry | Search workspace | Create placeholder |
@@ -314,7 +351,7 @@ Phase 3: Escalate
 
 ## Self-Prompting Tokens
 
-- `[SELF-PROMPT: executing step N]` — Use when you detect any Category A-E pattern in your output
+- `[SELF-PROMPT: executing step N]` — Use when you detect any Category A-G pattern in your output
 - `[CONTINUING]` — Reasoning was truncated; continue thought + tool call
 - `[RETRYING]` — Before re-attempting failed tool call
 - `[FALLBACK]` — Switching to alternative approach
@@ -346,6 +383,9 @@ Phase 3: Escalate
                              → "I already showed the complete summary."
                              → "I haven't done that yet."
                              → 任务状态陈述 ≠ 任务执行。声称完成 ≠ 真的完成。
+  "现在来.*:"                → "现在来分析/探索/查看..." 🆕 v3.5
+  "(?:let me|now|further)\s+(?:analyze|explore|look|check|examine|dig|research).*:"  🆕 v3.5
+                             → "let me analyze further:" / "now explore:"
 
 触发后的修复动作:
   1. 定位那个末尾冒号
@@ -366,8 +406,9 @@ Before sending ANY response during a multi-step task, run this mechanical check:
    → Look at the LAST 80 characters of your response.
    → Does it match: "Step N.*:" / "完成.*Step.*:" / "done.*Step.*:" /
                     "现在.*:" / "生成.*:" / "let me.*:" / "让我.*:" / "我来.*:" /
-                    "I (?:already|haven't).*(?:done|created|shown).*" ?
-   → YES + no tool call after it → STOP. This is a COLON TRAP or COMPLETION HALLUCINATION. REWRITE.
+                    "I (?:already|haven't).*(?:done|created|shown).*" /
+                    "现在来.*:" / "(?:let me|now|further)\s+(?:analyze|explore|look).*:" ?
+   → YES + no tool call after it → COLON TRAP / EXPLORATION CHAIN BREAK. REWRITE.
    → Fix: put the tool call on the SAME LINE after the colon, or delete the colon-line entirely.
 
 1. SCAN your output for these phrases:
@@ -375,9 +416,10 @@ Before sending ANY response during a multi-step task, run this mechanical check:
    "I should"  "I will now"  "next I will"  "now doing"  "let me check"
    "Task Plan"  "generating the first"  "now generating the"
    "明白，继续"  "好的，马上"  "收到，现在"  ← Category F triggers!
+   "let me analyze"  "now explore"  "further analyze"  "现在来分析"  "深入分析"  "进一步探索"  ← Category G triggers! 🆕
 
    → If ANY phrase is present AND your response does NOT end with a tool call:
-     YOU HAVE HIT A CATEGORY A/B/C/D/E/F INTERRUPTION. REWRITE.
+     YOU HAVE HIT A CATEGORY A/B/C/D/E/F/G INTERRUPTION. REWRITE.
 
 2. SPECIAL CHECK — Did the user just say "继续"/"不要停"/"好的"?
    → If YES, your response MUST skip pleasantries and go directly to a tool call.
@@ -394,50 +436,56 @@ Before sending ANY response during a multi-step task, run this mechanical check:
 
 ---
 
-## Integration with Agnes Image Generator
+## Integration with Other Skills
 
-When generating multiple images, the CORRECT pattern is:
+This skill WRAPS around domain-specific skills. All 7 categories (A-G) + Colon Rule + JSON recovery apply automatically.
 
+**Agnes Image Generator (`$agnes-image-generator`):**
 ```
 Task Plan: 4 images. Sequential mode.
 Step 1: Sun Wukong → Step 2: Zhu Bajie → Step 3: Sha Wujing → Step 4: Tang Sanzang.
 
 Generating Step 1 — Sun Wukong:
 [Bash: python generate_image.py --prompt "Sun Wukong..." --size 1024x1024 ...]
-```
 
 After tool result:
-```
 Sun Wukong done ✓. Step 2 — Zhu Bajie:
 [Bash: python generate_image.py --prompt "Zhu Bajie..." --size 1024x1024 ...]
-```
 
 Continue until ALL 4 complete. ZERO "继续" between steps.
+- API timeout → "Timeout. Retrying:" + [SAME tool call] — ONE response.
+- Path typo → "Path fixed. Retrying:" + [CORRECTED tool call] — ONE response.
+- JSON 400 error → Fix JSON (see §JSON & API Error Recovery) → Retry in SAME response.
+```
 
-If API timeout: `"Timeout. Retrying:" + [SAME tool call]` — ONE response, not two.
+**Playwright CLI (`$playwright-cli`):**
+Page load fail → retry with extended timeout. Browser crash → `playwright-cli open`.
 
-If path typo: `"Path fixed. Retrying:" + [CORRECTED tool call]` — ONE response, not two.
+**Research/Analysis Tasks (Category G awareness):**
+Every exploration step (curl, WebFetch, Grep, Read) chains to the next. SAME response.
 
 ---
 
-## Quick Reference — The 6 Forbidden Endings
+## Quick Reference — The 7 Forbidden Endings
 
 ```
-你的响应绝对不可以用以下 6 种方式结尾：
+你的响应绝对不可以用以下 7 种方式结尾：
 
 ❌ ...generating the first image now:           (Category A — 计划陈述)
 ❌ ...let me increase the timeout and retry:    (Category B — 错误诊断)
 ❌ ...X done. Now generating Y:                (Category C — 进度报告)
 ❌ ...I notice X. Let me rename them:          (Category D — 观察结论)
 ❌ ...The solution is X. I should now do X:    (Category E — 思考推理)
-❌ ...明白，继续生成 X:                          (Category F — 确认回应) 🆕
+❌ ...明白，继续生成 X:                          (Category F — 确认回应)
+❌ ...现在来分析/探索/深入 X:                     (Category G — 探索断链) 🆕
 
 ✅ ...generating first image: [TOOL CALL]      (计划 + 执行)
 ✅ ...timeout. Retrying: [TOOL CALL]           (诊断 + 重试)
 ✅ ...X done. Step Y: [TOOL CALL]              (报告 + 链接)
 ✅ ...I notice X. Fixing: [TOOL CALL]          (观察 + 修复)
 ✅ ...Best: X. Executing: [TOOL CALL]          (思考 + 行动)
-✅ 明白。Step N: [TOOL CALL]                    (确认 + 行动) 🆕
+✅ 明白。Step N: [TOOL CALL]                    (确认 + 行动)
+✅ SPA identified. Next — analyzing routes: [TOOL CALL]  (探索 + 链接) 🆕
 ```
 
 **THE ULTIMATE RULE: If your response would end with a colon followed by nothing but the next turn, it's WRONG. A colon introducing an action MUST be followed by the tool call for that action in the SAME response.**
@@ -454,13 +502,13 @@ If path typo: `"Path fixed. Retrying:" + [CORRECTED tool call]` — ONE response
 
 1. 当前多步任务已 **100% 完成**，最终结果已交付
 2. 在任务执行过程中，出现了**至少 1 次**用户说"继续"/"不要停"/"好的"等推进指令的情况
-3. 中断的模式**无法被现有 Category A-F 完全覆盖**
+3. 中断的模式**无法被现有 Category A-G 完全覆盖**
 
 ### 完善范围（仅限以下两项）
 
 | 允许的操作 | 说明 | 示例 |
 |-----------|------|------|
-| **新增分类** | 发现全新中断模式，不属于 A-F 任何一类 | 新增 `Category G — XXX型中断` |
+| **新增分类** | 发现全新中断模式，不属于 A-G 任何一类 | 新增 `Category H — XXX型中断` |
 | **补充示例** | 已有类别下添加新的对话真实案例 | 在 Category C 下新增一条 `对话真实案例` |
 
 ### 禁止的操作（绝对不允许）
