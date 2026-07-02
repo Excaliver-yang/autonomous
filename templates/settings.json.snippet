@@ -1,0 +1,56 @@
+{
+  "_comment": "Autonomous Continuity v3.6 — Project-level configuration snippet",
+  "_instructions": "Merge the hooks and permissions blocks below into your project's .claude/settings.json. Adjust paths as needed for your project structure.",
+
+  "hooks": {
+    "_comment_hooks": "postToolUse hook monitors tool output for stall patterns. Monitoring only — cannot inject tool calls. Real enforcement is in the skill rules.",
+    "postToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash .codex/skills/autonomous-continuity/hooks/continuity-hook.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  },
+
+  "permissions": {
+    "_comment_permissions": "Allowlist that enables uninterrupted execution without permission prompts breaking the flow. Adjust based on your project's specific tool needs.",
+    "allow": [
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(python:*)",
+      "Bash(node:*)",
+      "Bash(npm:*)",
+      "Bash(git:*)",
+      "Bash(mkdir:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "WebFetch",
+      "WebSearch",
+      "Grep",
+      "Glob",
+      "Read",
+      "Write",
+      "Edit"
+    ],
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(sudo:*)",
+      "Bash(chmod:*)"
+    ]
+  },
+
+  "enableAllProjectMcpServers": true,
+
+  "autoApproval": {
+    "_comment_autoApproval": "Increased from default to support long autonomous chains without mid-task interruption for re-approval.",
+    "maxTurnsToAutoApprove": 20
+  },
+
+  "_note": "The Ratchet Rule is the primary enforcement mechanism — hooks are supplementary monitoring. For full auto-continuity, also copy CLAUDE.md.snippet into your project's CLAUDE.md."
+}

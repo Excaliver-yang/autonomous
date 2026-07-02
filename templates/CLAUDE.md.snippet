@@ -1,0 +1,70 @@
+<!--
+  Autonomous Continuity Rules (v3.6)
+  Embed this in your project CLAUDE.md to enforce autonomous continuity
+  at the project level. Copy everything from <!-- START --> to <!-- END -->.
+
+  This is a workaround since skills cannot auto-load.
+  The rules below are the core continuity enforcement patterns
+  that run alongside any skill invocation in this project.
+-->
+
+<!-- START: AUTONOMOUS CONTINUITY v3.6 -->
+
+## Autonomous Continuity Rules (ACTIVE — Zero "继续" Policy)
+
+During any multi-step task, your response MUST end with a tool call — never with text alone.
+
+### The 8 Forbidden Endings (Categories A-H)
+
+| Category | Pattern | Fix |
+|----------|---------|-----|
+| A — Plan Statement | `"generating X now:"` → STOP | Plan + [TOOL CALL] in same response |
+| B — Error Diagnosis | `"timed out. Let me retry:"` → STOP | Error note + [RETRY TOOL CALL] in same response |
+| B-sub — Method Switch | `"Let me try X instead:"` → STOP | Silent switch: [TOOL CALL] without preamble |
+| C — Progress Report | `"X done. Now Y:"` → STOP | Progress + [TOOL CALL for Y] in same response |
+| C-sub — Hallucination | `"I already showed X"` → STOP | Verify before claiming. When uncertain, execute. |
+| D — Observation | `"I notice X. Let me fix:"` → STOP | Observation + [FIX TOOL CALL] in same response |
+| E — Thinking | `"I should do X:"` → STOP | Reasoning + [EXECUTION TOOL CALL] |
+| F — Acknowledgement | User:"继续" → "明白，继续:" → STOP | Skip pleasantries. Go to [TOOL CALL]. |
+| G — Exploration Chain | `"now let me explore X:"` → STOP | Finding + [EXPLORATION TOOL CALL] in same response |
+| G-sub — Multi-Level | Exploration reveals deeper layer → STOP | "Does this data reveal another question?" → If yes, chain immediately. |
+| H — Ratchet Continuity | Same category repeats 3+ times | ESCALATE: Level 1→2+calls, Level 2→3+calls, Level 3→until hard boundary |
+
+### Ratchet Level Escalation (Category H)
+
+Track user "继续"/"好的"/"ok"/"don't stop" pushes in this session:
+
+| Pushes | Level | Min Tool Calls | Stop Condition |
+|--------|-------|----------------|----------------|
+| 0 | Level 0 (Standard) | 1+ per response | Task complete or A-H violation |
+| 1 | Level 1 (Light) | 2+ per response | Must chain |
+| 2 | Level 2 (Medium) | 3+ per response | Deep chain required |
+| 3+ | Level 3 (Heavy) | Until hard boundary | Only: auth needed, tool unavailable, task 100% done |
+
+**Hard boundaries**: (1) user authentication/credentials required, (2) required tool not available, (3) entire multi-step task 100% complete and delivered.
+
+### Colon Rule (Mechanical Check)
+
+Before sending ANY response, scan last 80 characters for:
+- `"Step N.*:"` / `"完成.*:"` / `"done.*:"` — Category C colon trap
+- `"现在.*:"` / `"现在来.*:"` / `"生成.*:"` — Category C/D/G trap
+- `"let me.*:"` / `"让我.*:"` / `"我来.*:"` — Category B/D/E trap
+- `"let me try.*instead:"` / `"改用.*:"` / `"换.*方法.*:"` — Method switch trap
+- `"I (?:already|haven't).*(?:done|created|shown).*"` — Completion hallucination
+
+→ Match + no tool call after it → REWRITE. Put the tool call on the SAME line.
+
+### Mid-Task Self-Improvement
+
+If same Category A-H pattern repeats 3+ consecutive times in this session:
+→ Do NOT output text analysis. Instead: escalate ratchet level immediately.
+→ Level 0-1 → jump to Level 2. Level 2 → jump to Level 3.
+→ This is behavioral, not textual. Just DO more per response.
+
+### Golden Rule
+
+**Task incomplete → Response MUST end with a tool call.**
+**Task complete → Response MAY end with text (final delivery).**
+**Every "继续" the user types = a failure you could have prevented.**
+
+<!-- END: AUTONOMOUS CONTINUITY v3.6 -->

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Continuity Monitor v3.0 — Diagnostic & active monitoring helper for autonomous-continuity skill.
+Continuity Monitor v3.7 — Diagnostic & active monitoring helper for autonomous-continuity skill.
 
 Analyzes execution logs for interruption patterns including the NARRATIVE TRAP
 (describing an action without executing it), JSON parse errors, approval breaks,
@@ -109,6 +109,38 @@ INTERRUPTION_PATTERNS = {
         "description": "Codex proxy layer error — the request to Agnes model failed at infrastructure level",
         "action": "Retry with same parameters. If persistent, simplify the request or reduce context size.",
     },
+    # --- NEW: v3.6 patterns ---
+    "recursive_exploration_break": {
+        "regex": r"(?:(?:进一步|深入|更深|下一层|next\s+level|deeper|further|dig\s+deeper)\s+(?:分析|探索|研究|调查|analyze|explore|investigate))",
+        "severity": "critical",
+        "description": "RECURSIVE EXPLORATION: Multi-level exploration chain detected — 'further analyze/explore X' WITHOUT next tool call. Category G sub-type (v3.6).",
+        "action": "Chain the NEXT exploration tool call in SAME response. Ask: 'Does this data reveal another question?' If yes → execute immediately.",
+    },
+    "method_switch_stall": {
+        "regex": r"(?:let\s+me\s+try\s+(?:a\s+)?(?:different|new|another|alternative)\s+(?:approach|method|way|strategy|technique)|(?:maybe|perhaps)\s+(?:I|we)\s+should\s+(?:try|switch|use|change|采用|使用)|改用|换一个方法|换个思路|换种方式)",
+        "severity": "high",
+        "description": "METHOD SWITCH STALL: Voluntary approach switch described but not executed. 'Let me try X instead' WITHOUT the tool call. Category B sub-type (v3.6).",
+        "action": "Execute the new approach tool call FIRST. The tool call IS the announcement. No preamble needed.",
+    },
+    "ratchet_continuity_break": {
+        "regex": r"(?:继续|好的[，,]?\s*(?:继续)?|ok[，,]?\s*(?:go\s+on)?|go\s+on|don'?t\s+stop|不要停|next\s+(?:step|one)?)",
+        "severity": "critical",
+        "description": "RATCHET CONTINUITY BREAK: User push command detected — track TOTAL frequency across ALL categories. If N>=3 in one session, this is a Category H violation requiring level escalation (v3.7: mixed-category counting).",
+        "action": "INCREASE steps-per-response: Level 1→2+ calls, Level 2→3+ calls, Level 3→run until hard boundary. The model must self-escalate autonomously regardless of interruption category.",
+    },
+    # --- NEW: v3.7 patterns ---
+    "command_syntax_loop": {
+        "regex": r"(?:(?:PowerShell|bash|cmd|shell|zsh)\s+(?:syntax|escaping|quoting|truncat)|(?:--%|&\w+.*truncat|URL.*(?:截断|truncat)|special\s+char.*(?:shell|command)))",
+        "severity": "high",
+        "description": "COMMAND SYNTAX LOOP: Command failed due to shell/platform syntax issues — agent may be trying one fix per response instead of all at once. Category B sub-type (v3.7).",
+        "action": "Try ALL syntax variants (quoting, escaping, different shell) in ONE response. If 3+ syntax attempts fail, switch tool entirely.",
+    },
+    "user_context_neglect": {
+        "regex": r"(?:let\s+me\s+(?:check|verify|confirm|validate)\s+(?:if|whether|that|the)|让我\s*(?:确认|检查|验证|看看)\s*(?:一下|是否|这个|那个)|I(?:'ll|\s+will)\s+(?:check|verify)\s+(?:if|the))",
+        "severity": "critical",
+        "description": "USER CONTEXT NEGLECT: User provided context ('I already did X') but agent is verifying instead of leveraging. Category I (v3.7).",
+        "action": "TRUST the user's context. Skip verification. Go directly to the next step based on the user-provided information.",
+    },
 }
 
 # Severity ordering for display (critical = new highest tier for narrative traps)
@@ -196,7 +228,109 @@ def analyze_log(log_path):
         "by_pattern": pattern_counts,
     }
 
+    # Run ratchet detection (v3.6)
+    ratchet_result = detect_ratchet_patterns(results)
+    results["ratchet_detected"] = ratchet_result["ratchet_detected"]
+    results["ratchet_groups"] = ratchet_result["ratchet_groups"]
+    results["ratchet_recommendation"] = ratchet_result.get("recommendation")
+
     return results
+
+
+def detect_ratchet_patterns(report):
+    """Detect ratchet continuity breaks: total user pushes >= 3 (v3.7: mixed categories).
+
+    v3.7 CHANGE: Now counts TOTAL interruptions regardless of category type,
+    not just consecutive same-category streaks. Mixed-category ratchets
+    (A→B→G→C→B) are just as harmful as same-category ones (G→G→G).
+
+    Returns a dict with:
+      - ratchet_detected: bool
+      - total_push_count: int (total interruptions across ALL categories)
+      - ratchet_groups: list of {pattern, count, start_line, end_line, severity}
+      - mixed_ratchet: bool (True if multiple different categories involved)
+      - recommendation: str or None
+    """
+    interruptions = report.get("interruptions", [])
+    total_count = len(interruptions)
+
+    if total_count < 3:
+        return {
+            "ratchet_detected": False,
+            "total_push_count": total_count,
+            "ratchet_groups": [],
+            "mixed_ratchet": False,
+            "recommendation": None,
+        }
+
+    # Detect same-category streaks (still useful for diagnostics)
+    ratchet_groups = []
+    current_pattern = None
+    current_streak = []
+
+    for item in interruptions:
+        pat = item["pattern"]
+        if pat == current_pattern:
+            current_streak.append(item)
+        else:
+            if len(current_streak) >= 3:
+                ratchet_groups.append({
+                    "pattern": current_pattern,
+                    "count": len(current_streak),
+                    "start_line": current_streak[0]["line"],
+                    "end_line": current_streak[-1]["line"],
+                    "severity": current_streak[0]["severity"],
+                })
+            current_pattern = pat
+            current_streak = [item]
+
+    if len(current_streak) >= 3:
+        ratchet_groups.append({
+            "pattern": current_pattern,
+            "count": len(current_streak),
+            "start_line": current_streak[0]["line"],
+            "end_line": current_streak[-1]["line"],
+            "severity": current_streak[0]["severity"],
+        })
+
+    # Determine if mixed ratchet
+    unique_patterns = set(item["pattern"] for item in interruptions)
+    mixed_ratchet = len(unique_patterns) >= 3 and not ratchet_groups
+
+    result = {
+        "ratchet_detected": True,  # total_count >= 3 triggers escalation
+        "total_push_count": total_count,
+        "ratchet_groups": ratchet_groups,
+        "mixed_ratchet": mixed_ratchet,
+    }
+
+    if total_count >= 8:
+        result["recommendation"] = (
+            f"CRITICAL: {total_count} total user pushes detected (mixed categories). "
+            "This session has a SEVERE structural continuity failure. "
+            "Ratchet Level 3 required immediately: run until hard boundary. "
+            "Mixed-category ratchet: Agent fails across diverse interruption types."
+        )
+    elif total_count >= 5:
+        result["recommendation"] = (
+            f"HIGH: {total_count} total user pushes detected. "
+            "Ratchet Level 3 required: run until hard boundary. "
+            + ("Mixed-category ratchet detected — categories alternate without triggering same-category detection."
+               if mixed_ratchet else
+               f"Longest same-category streak: {max(g['count'] for g in ratchet_groups)}x.")
+        )
+    elif total_count >= 4:
+        result["recommendation"] = (
+            f"HIGH: {total_count} total user pushes. "
+            "Ratchet Level 2 required: minimum 3+ tool calls per response."
+        )
+    else:
+        result["recommendation"] = (
+            f"WARNING: {total_count} total user pushes. "
+            "Ratchet Level 1 required: minimum 2+ tool calls per response."
+        )
+
+    return result
 
 
 def print_report(report):
@@ -240,6 +374,26 @@ def print_report(report):
             print(f"       Fix:     ADD the tool call for the described action in SAME response")
         if len(narrative_traps) > 15:
             print(f"  ... and {len(narrative_traps) - 15} more narrative trap(s).")
+
+    # Ratchet continuity breaks section (v3.7: total-push tracking)
+    total_pushes = report.get("total_push_count", 0)
+    if total_pushes >= 3:
+        mixed = report.get("mixed_ratchet", False)
+        print(f"\n  --- 🔄 RATCHET CONTINUITY BREAKS — Category H (v3.7) ---")
+        print(f"  TOTAL user pushes: {total_pushes} (all categories combined)")
+        if mixed:
+            print(f"  ⚠️  MIXED RATCHET: Different categories alternate — no single category triggers.")
+            print(f"       v3.6 same-category detection would have MISSED this pattern.")
+            print(f"       v3.7 total-push tracking correctly identifies the ratchet.")
+        ratchet_groups = report.get("ratchet_groups", [])
+        if ratchet_groups:
+            print(f"  Same-category streaks also detected:")
+            for group in ratchet_groups:
+                print(f"  [🔄] Pattern: {group['pattern']} — {group['count']}x consecutive")
+                print(f"       Lines {group['start_line']}-{group['end_line']}")
+        rec = report.get("ratchet_recommendation")
+        if rec:
+            print(f"  Recommendation: {rec}")
 
     # Approval breaks section
     approval_breaks = report.get("approval_breaks", [])
@@ -331,6 +485,16 @@ def print_report(report):
             "         Reduce context size, simplify the request, or retry with backoff."
         )
 
+    if report.get("ratchet_detected"):
+        rc = len(report.get("ratchet_groups", []))
+        max_count = max((g["count"] for g in report.get("ratchet_groups", [])), default=0)
+        recommendations.append(
+            f"[🔄 RATCHET] {rc} ratchet group(s) detected, longest streak: {max_count}x. "
+            "This is a Category H violation — the agent failed to self-escalate after repeated user pushes.\n"
+            "         FIX: Implement ratchet level escalation. After push #1: chain 2+ calls. "
+            "After push #2: chain 3+ calls. After push #3: run until hard boundary."
+        )
+
     if not recommendations:
         recommendations.append("[OK] No critical issues detected. Execution appears continuous.")
 
@@ -350,7 +514,7 @@ def inject_continuity(target_dir):
         return False
 
     config = {
-        "version": "3.0",
+        "version": "3.7",
         "created": datetime.now().isoformat(),
         "policy": {
             "max_retries_per_phase": 2,
@@ -515,6 +679,7 @@ Examples:
   python continuity_monitor.py --inject ./my-project
   python continuity_monitor.py --watch . --interval 15
   python continuity_monitor.py --validate-json '{"key": "value",}'
+  python continuity_monitor.py --detect-ratchet session.log
   python continuity_monitor.py --validate-json-file request.json
         """,
     )
@@ -558,6 +723,10 @@ Examples:
     parser.add_argument(
         "--detect-narrative-traps", metavar="LOG_FILE",
         help="Specifically scan a log for narrative trap patterns (the #1 cause of user '继续')",
+    )
+    parser.add_argument(
+        "--detect-ratchet", metavar="LOG_FILE",
+        help="Specifically scan a log for ratchet continuity patterns (Category H — v3.6)",
     )
 
     args = parser.parse_args()
@@ -615,6 +784,33 @@ Examples:
     # Inject mode
     if args.inject:
         inject_continuity(args.inject)
+        return
+
+    # Ratchet detection mode (specialized scan for Category H — v3.6)
+    if args.detect_ratchet:
+        report = analyze_log(args.detect_ratchet)
+        if report:
+            rg = report.get("ratchet_groups", [])
+            print(f"\n{'='*70}")
+            print(f"  RATCHET CONTINUITY DETECTION REPORT (Category H — v3.6)")
+            print(f"{'='*70}")
+            print(f"  File: {report['file']}")
+            print(f"  Ratchet groups found: {len(rg)}")
+            if rg:
+                print(f"\n  These are same-category interruption patterns that repeated")
+                print(f"  3+ consecutive times — indicating a meta-level structural failure.\n")
+                for i, group in enumerate(rg, 1):
+                    print(f"  [{i}] Pattern: {group['pattern']} — {group['count']}x consecutive")
+                    print(f"      Lines: {group['start_line']} -> {group['end_line']}")
+                    print(f"      Severity: {group['severity']}")
+                    print()
+                rec = report.get("ratchet_recommendation")
+                if rec:
+                    print(f"  Recommendation: {rec}")
+            else:
+                print(f"\n  [OK] No ratchet continuity breaks detected.")
+                print(f"  The agent did not repeat the same interruption pattern 3+ times consecutively.")
+            print(f"{'='*70}\n")
         return
 
     # Narrative trap detection mode (specialized scan)
