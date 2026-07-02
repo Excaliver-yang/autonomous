@@ -264,6 +264,51 @@ The Kill Switch is placed:
 
 This "first thing you see" placement ensures it's read before any other rule — maximizing compliance probability.
 
+### Kill Switch Compliance Failure (v3.8.1 → v3.9)
+
+The Kill Switch was tested in a 9-push Playwright session. Result: **0/9 compliance.** ALL 9 responses contained "让我/let me" phrases. Placement at the top of the file did not improve compliance.
+
+This proved that **self-audit placement doesn't matter.** The failure is in the audit mechanism itself — not in where it's positioned.
+
+---
+
+## Self-Audit vs Language Constraint — The v3.9 Pivot
+
+### The Fundamental Problem
+
+All rules from v3.3 (Colon Rule) through v3.8.1 (Kill Switch) share one mechanism: **pre-send self-audit**. The model must voluntarily check its own output before sending.
+
+| Version | Mechanism | Compliance | Evidence |
+|---------|----------|-----------|---------|
+| v3.3 | Colon Rule (20+ patterns) | ~10% | Various sessions |
+| v3.8.1 | Kill Switch (1 pattern, top of file) | 0% | 9-push session: 0/9 |
+| v3.8.1 | Kill Switch + Colon Rule combined | 0% | Same session |
+
+**Finding: Rule simplicity and placement do NOT correlate with self-audit compliance.** The failure is systemic.
+
+### Why Self-Audits Fail (Cognitive Model)
+
+The model generates text autoregressively. "让我检查X" is generated before any rule can intercept it. Post-generation audit requires:
+1. Remember the rule exists
+2. Scan generated text
+3. Recognize the pattern match
+4. Decide it's a violation
+5. Execute the fix (delete + rewrite)
+6. Send corrected response
+
+Each step has non-zero failure probability. Multiplied = near-zero compliance.
+
+### The Language Constraint Alternative
+
+v3.9 replaces "check your output for X" with "you don't use X grammar pattern." It's a **generation-time constraint** (style guide), not a **post-generation audit** (checklist).
+
+| Mechanism | Operates | Failure Mode |
+|-----------|---------|-------------|
+| Self-audit | After generation | Model forgets/ignores the audit |
+| Language constraint | During generation | Model follows the grammar rule |
+
+LLMs are better at following stylistic rules during generation ("use -ing for action labels") than at auditing output after generation ("scan for 'let me' and delete it"). The constraint shapes token probabilities; the audit fights them.
+
 ---
 
 ## v3.6 Audit Preparation

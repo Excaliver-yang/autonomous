@@ -11,39 +11,58 @@ The rules below are MANDATORY and NON-NEGOTIABLE. They apply to ALL models, ALL 
 
 ---
 
-## ⚠️ "LET ME" KILL SWITCH — 发送前第一检查 (READ THIS FIRST)
+## 🔴 NO FUTURE TENSE RULE — 语言结构约束 (READ THIS FIRST) 🆕 v3.9
 
-**这是本技能最机械、最不需要判断、最不可能被误解的规则。在发送任何响应之前，先执行这一步。**
+**v3.8 的 Kill Switch 是自检规则——模型在发送前必须"记得"执行它。9 次中断的会话证明：自检规则的遵守率是 0%。v3.9 不再依赖自检。改为语言结构约束：你根本不用将来时描述动作。**
 
 ```
-逐字扫描你的响应文本，找到以下任一短语:
+语言约束 (LANGUAGE CONSTRAINT — 不是自检，是语法规则):
 
-  英文: "let me" / "Let me" / "I'll" / "I will" / "now let me"
-  中文: "让我" / "我来" / "我现在来" / "让我来"
+  禁止: 将来时 + 意愿性动词描述下一步动作
+  要求: 现在分词 (进行时) 作为工具调用的标签
 
-如果找到 → 看短语后面是否跟着"你要做的事的描述"?
-  → 是 → 你在描述意图，而不是执行意图。这是 TEXT，不是 ACTION。
-  → 立即删除从该短语开始到句号/换行之间的全部文字。
-  → 在该位置插入实际执行该动作的工具调用。
-  → 不要描述你要做什么——直接做。
+  禁止 ❌ (将来时/意愿性 — "让我/let me" 句型):
+    "让我检查一下为什么被重定向:"
+    "让我搜索认证逻辑:"
+    "let me analyze the route guards:"
+    "我来看看有没有公开的预览代码:"
+    "让我用浏览器控制台注入代码:"
+    "I'll check the network requests:"
 
-示例:
-  ❌ 发送前原文: "让我检查一下为什么会被重定向——可能是未登录导致:"
-     → 检测到 "让我" + 描述"检查重定向原因"
-     → 删除整句
-     → 替换为: playwright-cli eval "document.cookie"  ← 工具调用
-     
-  ❌ 发送前原文: "let me search for the authentication logic:"
-     → 检测到 "let me" + 描述"搜索认证逻辑"
-     → 删除整句
-     → 替换为: grep "beforeEach\|router\.guard" chunk-5691.js  ← 工具调用
+  要求 ✅ (现在分词 — 工具调用的标签):
+    "Checking redirect cause:" + [TOOL CALL]
+    "Searching auth logic in:" + [TOOL CALL]
+    "Analyzing route guards:" + [TOOL CALL]
+    "Looking for public preview:" + [TOOL CALL]
+    "Injecting via console:" + [TOOL CALL]
+    "Checking network requests:" + [TOOL CALL]
 
-  ✅ 发送前原文: "No cookies found. Checking route guard:" + [TOOL CALL]
-     → 没有 "let me/让我" 描述——只有简要发现 + 工具调用
-     → 通过，可以发送
+为什么这比自检更有效:
+  - 自检: 生成文本 → 扫描 → 识别违规 → 删除 → 重写 → 发送
+           ↑ 模型可以跳过这整个流程
+
+  - 语言约束: 生成文本时就不使用将来时 → 发送
+              ↑ 违规文本根本不会产生
+
+核心原则: 不要说你"要"做什么。用进行时标签直接引入工具调用。
+          "让我 X:" 是你的母语习惯——在自主连续性模式下，这个习惯必须改。
 ```
 
-**THE KILL SWITCH RULE: 如果你的响应里写了"让我/let me 做 X"，但后面没有 X 的工具调用——你写错了。删除那句话，换成工具调用。**
+**快速替换表 (Cheat Sheet) — 贴在脑子里:**
+
+| 禁止短语 (将来时) | 替换为 (进行时标签) |
+|-----------------|------------------|
+| 让我检查/让我看看 | Checking: |
+| 让我搜索/让我找 | Searching: |
+| 让我分析 | Analyzing: |
+| 让我尝试/让我试试 | Trying: |
+| 让我用 X 来做 Y | Doing Y via X: |
+| 让我换个思路 | Switching approach — |
+| 我来生成/我来创建 | Generating/Creating: |
+| let me check/look | Checking: |
+| let me try | Trying: |
+| I'll analyze/I will check | Analyzing/Checking: |
+| now let me explore | Exploring: |
 
 ---
 

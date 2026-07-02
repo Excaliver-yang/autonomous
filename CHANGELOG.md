@@ -37,6 +37,53 @@ Same-day patch after further session analysis revealed ALL 6 interruptions share
 
 **Why this works when Colon Rule didn't:** The Colon Rule is buried in a 4-pass self-audit with 20+ match patterns. The Kill Switch is ONE rule at the TOP of the file with a single mechanical action. Simpler → more likely to be executed. "Delete and replace" is easier to follow than "rewrite."
 
+### v3.8.1 Compliance Failure → v3.9
+
+**Critical finding:** The same-day Kill Switch patch had 0% compliance in the next session (9-push Playwright task). ALL 9 responses contained "让我/let me" phrases. The Kill Switch, Colon Rule, and all self-audits share the same fatal flaw: they require the model to voluntarily check its own output before sending. The model simply... doesn't run the check.
+
+---
+
+## v3.9 (2026-07-02) — No Future Tense Rule
+
+### Root Cause Analysis
+
+Across 15+ analyzed interruption responses in research tasks, **100% contain some form of "让我/let me" + action description.** The Colon Rule (v3.3), Kill Switch (v3.8.1), and PASS scans ALL detect this pattern. But compliance is ~0% because:
+
+1. "让我/let me X" is the model's **natural language habit** — it's how LLMs transition between actions
+2. Self-audits require the model to **remember** to check, **recognize** the violation, **decide** to fix it, and **execute** the fix — all before sending
+3. Each of these steps has a failure probability. Multiplied together: ~0% compliance
+
+### Solution: Language Constraint, Not Self-Audit
+
+v3.9 stops telling the model "check your output for X" and instead tells it "you don't use X grammar pattern." It's a **language constraint** (like a style guide), not a self-audit.
+
+**Core rule:** No future-tense volitional phrases for actions. Replace ALL "让我/let me/I'll" with present continuous (-ing) labels.
+
+| Before (v3.8, future tense) | After (v3.9, present continuous) |
+|---|---|
+| "让我检查一下为什么被重定向:" | "Checking redirect cause:" + [TOOL CALL] |
+| "let me search for auth logic:" | "Searching auth logic:" + [TOOL CALL] |
+| "我来分析路由守卫:" | "Analyzing route guards:" + [TOOL CALL] |
+| "I'll try injecting code:" | "Injecting code:" + [TOOL CALL] |
+
+**Why language constraints > self-audits:**
+- Self-audit: generate text → scan → recognize → decide → fix → send (6 steps, each with failure probability)
+- Language constraint: generate text without future tense → send (the violation never occurs)
+
+### Changed
+- SKILL.md: Replaced "Let Me Kill Switch" with "No Future Tense Rule" + replacement cheat sheet
+- openai.yaml: Replaced Kill Switch with LANGUAGE CONSTRAINT section + RESPONSE TEMPLATE
+- Colon Rule: Reorganized with future-tense patterns as highest priority
+- PATTERNS: All labels now use -ing form; added explicit ban on future tense
+- FINAL RULE: Added grammar constraint language
+- Self-checks: Simplified from 4-pass to 3-pass with future tense as PASS 1
+- diagnostics.md: Added Self-Audit vs Language Constraint compliance analysis
+
+### Context
+- 9-push Playwright session with 0% Kill Switch compliance proved self-audits don't work
+- 15+ analyzed responses all share the "让我/let me" pattern
+- Structural fix: change the language the model uses, rather than adding more checks
+
 ---
 
 ---
