@@ -4,6 +4,30 @@ All notable changes to the autonomous-continuity skill.
 
 ---
 
+## v3.8 (2026-07-02)
+
+### Added
+- **探索韧性规则 (Exploration Resilience Rule)**: The #1 cause of research-task interruptions at Level 3 is "I don't know what direction to explore next" → STOP TO THINK. This is NOT a valid stop reason. The rule provides a mechanical Uncertainty Action Tree: list 2-3 candidate directions in your head → pick one arbitrarily (no evaluation) → execute immediately → if dead end, switch to next candidate → only when ALL exhausted is it a hard boundary. Core principle: "At Level 3, exploration IS analysis. You don't figure out the right direction by thinking — you figure it out by trying. Pick any. Try it. Probe, don't ponder."
+- **New hard boundary**: "All exploration directions exhausted" (v3.8 — distinct from "task complete" because the task may be unsolvable given available tools, but you can only know after trying ALL directions)
+- **New self-prompting token**: `[EXPLORE-ANY]` — uncertain about next direction → pick one arbitrarily, execute
+- **openai.yaml Uncertainty Action Tree**: Mechanical decision tree replacing "自行判断" with concrete steps (list candidates → pick one → execute → try next if dead → exhaust all → hard boundary)
+
+### Fixed
+- **Research-task execution gap**: v3.7 rules tell the model "don't stop" but cannot force it to issue a tool call when it genuinely doesn't know what to explore next. The "decide what to do next" cognitive step is a natural interruption point in research tasks. The Exploration Resilience Rule fills this gap by replacing "decide → act" with "pick arbitrarily → act → adjust."
+
+### Changed
+- Category H Level 3 hard boundaries: added "all exploration directions exhausted"
+- Category H Level 3 forbidden stops: added "不确定下一步该探索什么方向"
+- Frontmatter description: added Exploration Resilience Rule to v3.8 feature list
+- Self-Prompting Tokens: added `[EXPLORE-ANY]`
+- openai.yaml: added Uncertainty Action Tree section, updated RATCHET RULE, updated FINAL RULE, added RESILIENT pattern
+- diagnostics.md: added Exploration Resilience analysis
+
+### Context
+- Triggered by real session analysis: 6-push Playwright CLI research task where agent pattern was G→G→G→G→G/B→G (exploration chain breaks). Even with v3.7 total-push tracking correctly detecting the ratchet, the model still stopped after each exploration step because "figuring out the next direction" felt like a valid stopping point. The root cause is structural: execution tasks have mechanical next steps, but research tasks require dynamic direction decisions — and that decision point is a natural cognitive boundary. The Exploration Resilience Rule removes the decision step entirely by replacing "decide → act" with "pick arbitrarily → act."
+
+---
+
 ## v3.7 (2026-07-02)
 
 ### Added

@@ -179,6 +179,54 @@ A(计划)→C(初始化)→B(重定向)→B(语法)→B(URL截断)→G(快照)�
 
 ---
 
+## Exploration Resilience Analysis (v3.8)
+
+### The Research-Task Execution Gap
+
+After v3.7's total-push ratchet tracking, a fundamental structural problem remained:
+
+**Execution tasks** (image generation, file operations) have **mechanical next steps**: "generate Zhu Bajie after Sun Wukong" — the agent knows exactly what to do next. The only failure is not chaining the tool call.
+
+**Research tasks** (code analysis, reverse engineering, debugging) have **dynamic next steps**: "this file is minified → should I search for route guards, check cookies, or analyze the network tab?" — the agent must DECIDE before it can act. That decision step is a natural cognitive boundary where interruptions occur.
+
+### Why Prompt Rules Alone Can't Fix This
+
+v3.7 rules say "don't stop at Level 3." But when the model genuinely doesn't know which of 3 directions to pursue, it faces a conflict:
+- "Don't stop" → must issue a tool call
+- "But which tool call?" → can't decide without thinking
+- "Thinking takes a response" → stops to think
+
+The model resolves this by... stopping to think. The rule says "don't stop" but the model's architecture creates a hard dependency: decision precedes action, and decision requires a response boundary.
+
+### The Exploration Resilience Solution
+
+Instead of fighting the decision→action dependency, the rule **removes the decision step entirely**:
+
+```
+Old: Decision → Action (decision requires a response boundary)
+New: Pick arbitrarily → Action → Adjust (no decision, just probing)
+```
+
+The Uncertainty Action Tree replaces "decide what to do" with "pick any direction and try it." This works because:
+1. At Level 3, the cost of trying a wrong direction is low (it's just one tool call)
+2. The cost of NOT trying anything is high (user must push again)
+3. Trying the "wrong" direction still produces useful information (it confirms a dead end)
+
+### Expected Effect on the 6-Push Session
+
+| Push# | What happened (v3.7) | What should happen (v3.8) |
+|-------|---------------------|--------------------------|
+| 1 | B: eval error → fix syntax → stop | Same — Level 1, can still make single-step fixes |
+| 2 | G: found redirect → "let me check why" → stop | Better — Level 2, should chain cookie check |
+| 3 | G: no cookies → "let me view route guard" → stop | **Resilience triggers**: pick any direction (cookies done, route guard OR search auth logic) → execute |
+| 4-6 | G→G→G: each mini-exploration → stop | **Resilience active**: pick→try→dead?→next→try→dead?→next→all exhausted → hard boundary |
+
+### Key Lesson
+
+**"Don't stop" is a negative instruction — it tells the model what NOT to do. The Exploration Resilience Rule is a positive instruction — it tells the model what TO DO when it doesn't know what to do. Pick any direction. Try it. Negative rules create paralysis; positive rules create action.**
+
+---
+
 ## v3.6 Audit Preparation
 
 The following locations must be verified after v3.6 changes:
