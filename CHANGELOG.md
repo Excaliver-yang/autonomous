@@ -26,6 +26,19 @@ All notable changes to the autonomous-continuity skill.
 ### Context
 - Triggered by real session analysis: 6-push Playwright CLI research task where agent pattern was G→G→G→G→G/B→G (exploration chain breaks). Even with v3.7 total-push tracking correctly detecting the ratchet, the model still stopped after each exploration step because "figuring out the next direction" felt like a valid stopping point. The root cause is structural: execution tasks have mechanical next steps, but research tasks require dynamic direction decisions — and that decision point is a natural cognitive boundary. The Exploration Resilience Rule removes the decision step entirely by replacing "decide → act" with "pick arbitrarily → act."
 
+### v3.8.1 Patch — "Let Me" Kill Switch
+
+Same-day patch after further session analysis revealed ALL 6 interruptions shared one pattern: the phrase "让我/let me" followed by an action description, without the tool call. The Colon Rule already detected these — the failure was the model NOT running the self-audit before sending.
+
+**Added:**
+- **"Let Me" Kill Switch**: Promoted to the VERY FIRST rule in SKILL.md and openai.yaml. Single mechanical check: "Did I write 'let me/让我' + action description? → DELETE the sentence. REPLACE with the tool call." No judgment required, no multi-pass audit. One check, one action.
+- Elevated from PASS 1 phrase scan to independent PASS -2 (runs before ratchet check and colon rule)
+- Added as 🔴 KILL SWITCH section at the top of openai.yaml system prompt
+
+**Why this works when Colon Rule didn't:** The Colon Rule is buried in a 4-pass self-audit with 20+ match patterns. The Kill Switch is ONE rule at the TOP of the file with a single mechanical action. Simpler → more likely to be executed. "Delete and replace" is easier to follow than "rewrite."
+
+---
+
 ---
 
 ## v3.7 (2026-07-02)

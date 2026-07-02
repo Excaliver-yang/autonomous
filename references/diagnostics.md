@@ -227,6 +227,45 @@ The Uncertainty Action Tree replaces "decide what to do" with "pick any directio
 
 ---
 
+## "Let Me" Kill Switch Analysis (v3.8.1)
+
+### The Colon Rule Compliance Problem
+
+The 6-push Playwright session revealed a critical issue: **ALL 6 interruptions contained "让我/let me" phrases that the Colon Rule already detects.** The rule was correct — the model just didn't follow it.
+
+```
+Session analysis (all 6 responses):
+  ✅ Colon Rule PATTERN MATCH: 6/6 (100% detected)
+  ❌ Colon Rule COMPLIANCE:    0/6 (0% followed — model sent response anyway)
+```
+
+### Why Compliance Fails
+
+The Colon Rule is embedded in a 4-pass self-audit (PASS -2, -1, 0, 1, 2) with 20+ match patterns, nested formatting, and multi-step fix instructions. Cognitive load is too high for a pre-send check that must happen in milliseconds.
+
+### The Kill Switch Solution
+
+Instead of adding MORE patterns to the audit, the Kill Switch simplifies to ONE rule:
+
+```
+Did I write "let me/让我" + action description?
+→ YES → Delete the sentence. Put the tool call there instead.
+→ Send.
+```
+
+**Design principle:** The Colon Rule has high precision (correctly identifies all violations) but low compliance (model ignores it). The Kill Switch trades precision for compliance: it catches fewer patterns but the ONE pattern it catches (let me/让我) accounted for 100% of the 6-push session's interruptions. One rule, perfectly followed, beats 20 rules inconsistently followed.
+
+### Placement Matters
+
+The Kill Switch is placed:
+1. **SKILL.md**: As the first section after the opening statement (before the classification system)
+2. **openai.yaml**: As the first rule after the mode declaration (before "THE ONLY RULE THAT MATTERS")
+3. **Pre-Response Self-Audit**: As PASS -2 (before ratchet check, before colon rule)
+
+This "first thing you see" placement ensures it's read before any other rule — maximizing compliance probability.
+
+---
+
 ## v3.6 Audit Preparation
 
 The following locations must be verified after v3.6 changes:
